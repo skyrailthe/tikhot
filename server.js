@@ -5,14 +5,9 @@ const path = require('path');
 require('dotenv').config();
 
 const app = express();
-// Force port to 3001
-const PORT = 3001;
-const BASE_API_URL = 'https://coomer.su/api/v1';
-
-// Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static('public'));
 
 // API Routes
 app.get('/api/posts', async (req, res) => {
@@ -123,6 +118,8 @@ app.get('*', (req, res) => {
 });
 
 // Start the server
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+const BASE_API_URL = 'https://coomer.su/api/v1';
+const port = process.env.PORT || 3001;
+app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
 });
