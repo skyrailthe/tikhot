@@ -21,7 +21,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+[your-repository-url]"
+    "url": "git+https://github.com/skyrailthe/tikhot.git"
   },
   "keywords": [
     "video-player",
@@ -30,6 +30,6 @@
     "nodejs",
     "express"
   ],
-  "author": "",
+  "author": "skyrailthe",
   "license": "MIT"
 }
