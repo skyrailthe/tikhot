@@ -103,11 +103,44 @@ class VideoFeed {
 class PostRenderer {
     constructor() {
         this.currentMediaIndex = 0;
+        this.currentPost = null;
     }
 
     renderPost(post) {
+        this.currentPost = post;
         const feedContainer = document.querySelector('.tiktok-feed');
-        const cleanedMediaFiles = this.cleanMediaUrls(post.mediaFiles || []);
+        
+        // Ensure post has mediaFiles and they are properly formatted
+        if (!post.mediaFiles || !Array.isArray(post.mediaFiles) || post.mediaFiles.length === 0) {
+            feedContainer.innerHTML = `
+                <div class="no-content">
+                    <h2>No media available</h2>
+                    <p>This post doesn't contain any media files.</p>
+                </div>
+            `;
+            return;
+        }
+        
+        const cleanedMediaFiles = this.cleanMediaUrls(post.mediaFiles);
+        
+        if (cleanedMediaFiles.length === 0) {
+            feedContainer.innerHTML = `
+                <div class="no-content">
+                    <h2>No media available</h2>
+                    <p>This post doesn't contain any media files.</p>
+                </div>
+            `;
+            return;
+        }
+        
+        // Reset currentMediaIndex if it's out of bounds for the new post
+        if (this.currentMediaIndex >= cleanedMediaFiles.length) {
+            this.currentMediaIndex = 0;
+        }
+        
+        const currentMedia = cleanedMediaFiles[this.currentMediaIndex];
+        // Check if currentMedia exists and has a type property
+        const isVideo = currentMedia && currentMedia.type === 'video';
         
         const postHTML = `
             <div class="video-post">
@@ -118,114 +151,190 @@ class PostRenderer {
                     </div>
                     <h2 class="video-title">${post.content || 'No description available'}</h2>
                 </div>
-                <div class="video-container">
-                    <video>
-                        <source src="${cleanedMediaFiles[0].path}" type="video/mp4">
-                        Your browser does not support the video tag.
-                    </video>
-                    <div class="video-controls">
-                        <div class="control-zone left-zone" data-action="rewind"></div>
-                        <div class="control-zone center-zone" data-action="playpause"></div>
-                        <div class="control-zone right-zone" data-action="forward"></div>
-                    </div>
-                    <button class="play-button">
-                        <i class="fas fa-play"></i>
-                    </button>
-                    <div class="progress-container">
-                        <div class="progress-bar">
-                            <div class="progress-filled"></div>
+                <div class="media-container">
+                    ${isVideo ? `
+                        <video class="main-media">
+                            <source src="${currentMedia.path}" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                        
+                        <div class="video-controls">
+                            <div class="control-zone left-zone" data-action="rewind"></div>
+                            <div class="control-zone center-zone" data-action="playpause"></div>
+                            <div class="control-zone right-zone" data-action="forward"></div>
                         </div>
-                        <div class="time-display">
-                            <span class="current-time">0:00</span>
-                            <span class="duration">0:00</span>
+                        
+                        <div class="controls-wrapper">
+                            <div class="progress-container">
+                                <div class="progress-bar">
+                                    <div class="progress-filled"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="media-action-buttons">
+                                <button class="mute-button material-button">
+                                    <i class="fas fa-volume-mute"></i>
+                                </button>
+                                <button class="fullscreen-button material-button">
+                                    <i class="fas fa-expand"></i>
+                                </button>
+                            </div>
                         </div>
+                    ` : `
+                        <img class="main-media" src="${currentMedia.path}" alt="${currentMedia.name || 'Media content'}">
+                        <div class="media-action-buttons">
+                            <button class="fullscreen-button material-button">
+                                <i class="fas fa-expand"></i>
+                            </button>
+                        </div>
+                    `}
+                </div>
+                
+                <div class="post-details">
+                    <div class="post-header">
+                        <span class="post-user">${post.user || 'Anonymous'}</span>
+                        <span class="post-service">${post.service || 'Unknown'}</span>
                     </div>
-                    <button class="mute-button">
-                        <i class="fas fa-volume-up"></i>
+                    <div class="post-text">${post.content || 'No description available'}</div>
+                    <div class="post-date">${new Date(post.published).toLocaleString()}</div>
+                </div>
+                
+                ${cleanedMediaFiles.length > 1 ? `
+                <div class="media-carousel-controls">
+                    <button class="prev-media material-button" ${this.currentMediaIndex === 0 ? 'disabled' : ''}>
+                        <i class="fas fa-chevron-left"></i>
                     </button>
-                    <button class="fullscreen-button">
-                        <i class="fas fa-expand"></i>
+                    <span class="media-counter">${this.currentMediaIndex + 1} / ${cleanedMediaFiles.length}</span>
+                    <button class="next-media material-button" ${this.currentMediaIndex === cleanedMediaFiles.length - 1 ? 'disabled' : ''}>
+                        <i class="fas fa-chevron-right"></i>
                     </button>
                 </div>
-                <div class="carousel-controls">
-                    <button class="carousel-button prev-media" ${cleanedMediaFiles.length <= 1 ? 'style="display:none"' : ''}>
-                        <i class="fas fa-chevron-left"></i> Previous
-                    </button>
-                    <button class="carousel-button next-media" ${cleanedMediaFiles.length <= 1 ? 'style="display:none"' : ''}>
-                        Next <i class="fas fa-chevron-right"></i>
-                    </button>
-                </div>
+                ` : ''}
             </div>
         `;
         
         feedContainer.innerHTML = postHTML;
-        this.setupCustomVideoControls(cleanedMediaFiles);
+        
+        // Немедленно добавим обработчики для таймлайна, чтобы гарантировать их работу
+        const progressBar = document.querySelector('.progress-bar');
+        const progressContainer = document.querySelector('.progress-container');
+        const controlsWrapper = document.querySelector('.controls-wrapper');
+        const video = document.querySelector('video');
+        
+        if (progressBar && video && isVideo) {
+            // Добавляем обработчик клика напрямую
+            const directClickHandler = (e) => {
+                e.stopPropagation();
+                console.log('Direct click on progress bar');
+                
+                if (!video.duration) return;
+                
+                const rect = progressBar.getBoundingClientRect();
+                const pos = (e.clientX - rect.left) / rect.width;
+                const normalizedPos = Math.max(0, Math.min(1, pos));
+                
+                // Перематываем видео
+                video.currentTime = normalizedPos * video.duration;
+            };
+            
+            progressBar.addEventListener('click', directClickHandler, { capture: true });
+            
+            // Также добавляем обработчик для контейнера
+            if (progressContainer) {
+                progressContainer.addEventListener('click', (e) => {
+                    // Не останавливаем распространение, если клик был на кнопке воспроизведения
+                    if (!e.target.closest('.play-button-timeline')) {
+                        e.stopPropagation();
+                        console.log('Direct click on progress container');
+                        
+                        // Проверяем, не был ли клик на дочернем элементе
+                        if (e.target === progressContainer || e.target === progressBar || e.target.closest('.progress-bar')) {
+                            const rect = progressBar.getBoundingClientRect();
+                            const pos = (e.clientX - rect.left) / rect.width;
+                            const normalizedPos = Math.max(0, Math.min(1, pos));
+                            
+                            // Перематываем видео
+                            video.currentTime = normalizedPos * video.duration;
+                        }
+                    }
+                }, { capture: true });
+            }
+            
+            // Убедимся, что controlsWrapper не перехватывает клики
+            if (controlsWrapper) {
+                controlsWrapper.addEventListener('click', (e) => {
+                    // Не останавливаем распространение, позволяем событию дойти до дочерних элементов
+                    console.log('Click on controls wrapper');
+                }, { capture: false });
+            }
+        }
+        
+        // Setup media controls based on type
+        if (isVideo) {
+            this.setupVideoControls(cleanedMediaFiles);
+        } else {
+            this.setupImageControls(cleanedMediaFiles);
+        }
+        
+        // Debug: Log to confirm timeline elements are created
+        console.log('Progress container:', document.querySelector('.progress-container'));
+        console.log('Progress bar:', document.querySelector('.progress-bar'));
+        console.log('Progress filled:', document.querySelector('.progress-filled'));
     }
 
-    setupCustomVideoControls(mediaFiles) {
-        const videoContainer = document.querySelector('.video-container');
-        if (!videoContainer) return;
+    setupVideoControls(mediaFiles) {
+        const mediaContainer = document.querySelector('.media-container');
+        if (!mediaContainer) return;
         
-        const video = videoContainer.querySelector('video');
-        const leftZone = videoContainer.querySelector('.left-zone');
-        const centerZone = videoContainer.querySelector('.center-zone');
-        const rightZone = videoContainer.querySelector('.right-zone');
-        const playButton = videoContainer.querySelector('.play-button');
-        const progressBar = videoContainer.querySelector('.progress-bar');
-        const progressFilled = videoContainer.querySelector('.progress-filled');
-        const currentTimeDisplay = videoContainer.querySelector('.current-time');
-        const durationDisplay = videoContainer.querySelector('.duration');
-        const muteButton = videoContainer.querySelector('.mute-button');
-        const fullscreenButton = videoContainer.querySelector('.fullscreen-button');
-        const prevButton = document.querySelector('.prev-media');
-        const nextButton = document.querySelector('.next-media');
+        const video = mediaContainer.querySelector('video');
+        const muteButton = mediaContainer.querySelector('.mute-button');
+        const fullscreenButton = mediaContainer.querySelector('.fullscreen-button');
+        const progressBar = mediaContainer.querySelector('.progress-bar');
+        const progressFilled = mediaContainer.querySelector('.progress-filled');
+        const progressContainer = mediaContainer.querySelector('.progress-container');
+        const leftZone = mediaContainer.querySelector('.left-zone');
+        const centerZone = mediaContainer.querySelector('.center-zone');
+        const rightZone = mediaContainer.querySelector('.right-zone');
         
-        if (!video || !leftZone || !centerZone || !rightZone) return;
+        if (!video) return;
         
         // Initial state
         video.muted = true;
         
-        // Center zone and play button - play/pause
+        // Set initial progress bar to 0
+        if (progressFilled) {
+            progressFilled.style.width = '0%';
+        }
+        
+        // Play/Pause functionality
         const togglePlay = () => {
             if (video.paused) {
                 video.play();
-                playButton.style.opacity = '0';
-                playButton.style.pointerEvents = 'none';
             } else {
                 video.pause();
-                playButton.style.opacity = '1';
-                playButton.style.pointerEvents = 'auto';
             }
         };
         
-        centerZone.addEventListener('click', togglePlay);
-        if (playButton) {
-            playButton.addEventListener('click', (e) => {
-                e.stopPropagation();
-                togglePlay();
+        // Add event listener to center zone for play/pause
+        if (centerZone) centerZone.addEventListener('click', togglePlay);
+        
+        // Left zone - rewind 10 seconds
+        if (leftZone) {
+            leftZone.addEventListener('click', () => {
+                video.currentTime = Math.max(0, video.currentTime - 10);
             });
         }
         
-        // Show play button when video ends
-        video.addEventListener('ended', () => {
-            playButton.style.opacity = '1';
-            playButton.style.pointerEvents = 'auto';
-        });
-        
-        // Left zone - rewind 15 seconds
-        leftZone.addEventListener('click', () => {
-            video.currentTime = Math.max(0, video.currentTime - 15);
-        });
-        
-        // Right zone - forward 15 seconds
-        rightZone.addEventListener('click', () => {
-            video.currentTime = Math.min(video.duration, video.currentTime + 15);
-        });
+        // Right zone - forward 10 seconds
+        if (rightZone) {
+            rightZone.addEventListener('click', () => {
+                video.currentTime = Math.min(video.duration, video.currentTime + 10);
+            });
+        }
         
         // Mute button
         if (muteButton) {
-            muteButton.addEventListener('click', (e) => {
-                e.stopPropagation();
+            muteButton.addEventListener('click', () => {
                 video.muted = !video.muted;
                 muteButton.innerHTML = video.muted ? 
                     '<i class="fas fa-volume-mute"></i>' : 
@@ -233,32 +342,15 @@ class PostRenderer {
             });
         }
         
-        // Double tap to toggle mute
-        let lastTap = 0;
-        videoContainer.addEventListener('touchend', (e) => {
-            const currentTime = new Date().getTime();
-            const tapLength = currentTime - lastTap;
-            if (tapLength < 300 && tapLength > 0) {
-                video.muted = !video.muted;
-                muteButton.innerHTML = video.muted ? 
-                    '<i class="fas fa-volume-mute"></i>' : 
-                    '<i class="fas fa-volume-up"></i>';
-                e.preventDefault();
-            }
-            lastTap = currentTime;
-        });
-        
         // Fullscreen button
         if (fullscreenButton) {
-            fullscreenButton.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                
+            fullscreenButton.addEventListener('click', async () => {
                 if (!document.fullscreenElement) {
                     try {
-                        await videoContainer.requestFullscreen();
+                        await mediaContainer.requestFullscreen();
                     } catch (err) {
                         try {
-                            await videoContainer.webkitRequestFullscreen();
+                            await mediaContainer.webkitRequestFullscreen();
                         } catch (err2) {
                             console.error('Could not enter fullscreen:', err2);
                         }
@@ -277,60 +369,182 @@ class PostRenderer {
             });
         }
         
-        // Progress bar functionality
-        if (progressBar) {
-            const handleSeek = (e) => {
-                const rect = progressBar.getBoundingClientRect();
-                const pos = (e.clientX - rect.left) / rect.width;
-                const normalizedPos = Math.max(0, Math.min(1, pos));
-                
-                if (video.duration) {
-                    video.currentTime = normalizedPos * video.duration;
-                    progressFilled.style.width = `${normalizedPos * 100}%`;
-                }
-            };
+        // Progress bar functionality - improved seeking
+        const handleSeek = (e) => {
+            e.stopPropagation(); // Prevent event bubbling
             
-            progressBar.addEventListener('click', handleSeek);
-            progressBar.addEventListener('touchstart', handleSeek);
+            if (!video.duration) return;
+            
+            const rect = progressBar.getBoundingClientRect();
+            const pos = (e.clientX - rect.left) / rect.width;
+            const normalizedPos = Math.max(0, Math.min(1, pos));
+            
+            // Update video position
+            video.currentTime = normalizedPos * video.duration;
+            
+            // Update progress bar visually
+            if (progressFilled) {
+                progressFilled.style.width = `${normalizedPos * 100}%`;
+            }
+            
+            console.log('Seek event handled at position:', normalizedPos);
+        };
+        
+        // Make the entire progress bar clickable
+        if (progressBar) {
+            // Remove any existing event listeners to avoid duplicates
+            progressBar.removeEventListener('click', handleSeek);
+            
+            // Click event with capture phase to ensure it gets priority
+            progressBar.addEventListener('click', handleSeek, { capture: true });
+            progressBar.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                console.log('Progress bar mousedown detected');
+            }, { capture: true });
+            
+            // Touch events with passive flag
+            progressBar.addEventListener('touchstart', (e) => {
+                e.stopPropagation(); // Prevent event bubbling
+                console.log('Progress bar touchstart detected');
+                
+                // Get the first touch
+                if (e.touches && e.touches[0]) {
+                    const touch = e.touches[0];
+                    // Create a simulated click event
+                    const simulatedEvent = {
+                        clientX: touch.clientX,
+                        clientY: touch.clientY,
+                        stopPropagation: () => {} // Dummy function
+                    };
+                    handleSeek(simulatedEvent);
+                }
+            }, { passive: true, capture: true });
+            
+            // Make the progress container also clickable (for easier targeting)
+            if (progressContainer) {
+                // Remove any existing event listeners to avoid duplicates
+                progressContainer.removeEventListener('click', () => {});
+                
+                progressContainer.addEventListener('click', (e) => {
+                    e.stopPropagation(); // Prevent event bubbling
+                    console.log('Progress container click detected at:', e.clientX, e.clientY);
+                    
+                    // Check if the click is directly on the container or on one of its children
+                    if (e.target === progressContainer || e.target === progressBar || e.target === progressFilled) {
+                        const rect = progressBar.getBoundingClientRect();
+                        
+                        // Calculate position
+                        const pos = (e.clientX - rect.left) / rect.width;
+                        const normalizedPos = Math.max(0, Math.min(1, pos));
+                        
+                        video.currentTime = normalizedPos * video.duration;
+                        if (progressFilled) {
+                            progressFilled.style.width = `${normalizedPos * 100}%`;
+                        }
+                    }
+                }, { capture: true });
+                
+                // Also handle touch events
+                progressContainer.addEventListener('touchstart', (e) => {
+                    e.stopPropagation(); // Prevent event bubbling
+                    console.log('Progress container touchstart detected');
+                    
+                    // Get the first touch
+                    if (e.touches && e.touches[0]) {
+                        const touch = e.touches[0];
+                        const rect = progressBar.getBoundingClientRect();
+                        
+                        // Calculate position
+                        const pos = (touch.clientX - rect.left) / rect.width;
+                        const normalizedPos = Math.max(0, Math.min(1, pos));
+                        
+                        video.currentTime = normalizedPos * video.duration;
+                        if (progressFilled) {
+                            progressFilled.style.width = `${normalizedPos * 100}%`;
+                        }
+                    }
+                }, { passive: true, capture: true });
+            }
         }
         
         // Update progress bar and time display
         video.addEventListener('timeupdate', () => {
-            if (progressBar && video.duration) {
+            if (progressFilled && video.duration) {
                 const progress = video.currentTime / video.duration;
                 progressFilled.style.width = `${progress * 100}%`;
-                currentTimeDisplay.textContent = this.formatTime(video.currentTime);
             }
         });
         
-        // Set duration when metadata is loaded
-        video.addEventListener('loadedmetadata', () => {
-            if (durationDisplay && video.duration) {
-                durationDisplay.textContent = this.formatTime(video.duration);
-            }
-        });
-
-        // Carousel navigation
-        if (mediaFiles.length > 1) {
-            if (prevButton) {
-                prevButton.addEventListener('click', () => {
-                    this.currentMediaIndex = (this.currentMediaIndex - 1 + mediaFiles.length) % mediaFiles.length;
-                    video.src = mediaFiles[this.currentMediaIndex].path;
-                    video.load();
-                    playButton.style.opacity = '1';
-                    playButton.style.pointerEvents = 'auto';
-                });
-            }
-            
-            if (nextButton) {
-                nextButton.addEventListener('click', () => {
-                    this.currentMediaIndex = (this.currentMediaIndex + 1) % mediaFiles.length;
-                    video.src = mediaFiles[this.currentMediaIndex].path;
-                    video.load();
-                    playButton.style.opacity = '1';
-                    playButton.style.pointerEvents = 'auto';
-                });
-            }
+        this.setupCarouselControls(mediaFiles);
+    }
+    
+    setupImageControls(mediaFiles) {
+        const mediaContainer = document.querySelector('.media-container');
+        if (!mediaContainer) return;
+        
+        const fullscreenButton = mediaContainer.querySelector('.fullscreen-button');
+        const img = mediaContainer.querySelector('img.main-media');
+        
+        if (!img) return;
+        
+        // Fullscreen button for images
+        if (fullscreenButton) {
+            fullscreenButton.addEventListener('click', async () => {
+                if (!document.fullscreenElement) {
+                    try {
+                        await mediaContainer.requestFullscreen();
+                    } catch (err) {
+                        try {
+                            await mediaContainer.webkitRequestFullscreen();
+                        } catch (err2) {
+                            console.error('Could not enter fullscreen:', err2);
+                        }
+                    }
+                } else {
+                    try {
+                        await document.exitFullscreen();
+                    } catch (err) {
+                        try {
+                            await document.webkitExitFullscreen();
+                        } catch (err2) {
+                            console.error('Could not exit fullscreen:', err2);
+                        }
+                    }
+                }
+            });
+        }
+        
+        this.setupCarouselControls(mediaFiles);
+    }
+    
+    setupCarouselControls(mediaFiles) {
+        if (!mediaFiles || mediaFiles.length <= 1) return;
+        
+        const prevButton = document.querySelector('.prev-media');
+        const nextButton = document.querySelector('.next-media');
+        
+        if (prevButton) {
+            prevButton.addEventListener('click', () => {
+                if (this.currentMediaIndex > 0) {
+                    this.currentMediaIndex--;
+                    // Re-render the same post with the updated media index
+                    if (this.currentPost) {
+                        this.renderPost(this.currentPost);
+                    }
+                }
+            });
+        }
+        
+        if (nextButton) {
+            nextButton.addEventListener('click', () => {
+                if (this.currentMediaIndex < mediaFiles.length - 1) {
+                    this.currentMediaIndex++;
+                    // Re-render the same post with the updated media index
+                    if (this.currentPost) {
+                        this.renderPost(this.currentPost);
+                    }
+                }
+            });
         }
     }
 
@@ -340,17 +554,46 @@ class PostRenderer {
             return [];
         }
         
-        return mediaFiles.map(file => {
-            if (!file || typeof file !== 'object') {
-                console.error('Invalid media file object:', file);
-                return { path: '', name: 'invalid', type: 'unknown' };
+        return mediaFiles.filter(file => {
+            // Filter out undefined or null files
+            return file && typeof file === 'object';
+        }).map(file => {
+            // Ensure file has a type property
+            if (!file.type) {
+                file.type = this.guessFileType(file.path || '');
             }
             
+            // Fix path if needed
             if (file.path && !file.path.startsWith('http') && !file.path.startsWith('/')) {
                 file.path = '/' + file.path;
             }
             return file;
         }).filter(file => file.path);
+    }
+    
+    // Helper method to guess file type based on file extension
+    guessFileType(path) {
+        if (!path) return 'unknown';
+        
+        const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.avi'];
+        const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+        
+        const lowercasePath = path.toLowerCase();
+        
+        for (const ext of videoExtensions) {
+            if (lowercasePath.endsWith(ext)) {
+                return 'video';
+            }
+        }
+        
+        for (const ext of imageExtensions) {
+            if (lowercasePath.endsWith(ext)) {
+                return 'image';
+            }
+        }
+        
+        // Default to image if we can't determine
+        return 'image';
     }
 
     formatTime(seconds) {
